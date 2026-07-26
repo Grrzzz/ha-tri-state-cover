@@ -83,7 +83,7 @@ Position is estimated from travel time. Optional endstop sensors auto-calibrate 
 | **Closed sensor** (recommended) | Aqara Door Sensor, reed switch | Detects fully closed position -- appears as `binary_sensor.*` |
 | **Open sensor** (optional) | Reed switch at top of travel | Detects fully open position -- eliminates drift |
 
-> **Tip:** Measure the full travel time (fully open to fully closed) with a stopwatch. Precision directly affects position accuracy.
+> **Tip:** Measure the opening and closing times separately with a stopwatch. Many garage doors open and close at different speeds. Precision directly affects position accuracy.
 
 ## Installation
 
@@ -111,7 +111,8 @@ Configuration is performed entirely through the Home Assistant UI.
 | Parameter | Required | Description |
 |-----------|----------|-------------|
 | Toggle switch | Yes | The `switch.*` entity that controls the motor |
-| Full travel time | Yes | Seconds for full open-to-closed travel (default: 20s) |
+| Opening time | Yes | Seconds for full closed-to-open travel (default: 20s) |
+| Closing time | Yes | Seconds for full open-to-closed travel (default: 20s) |
 | Closed sensor | No | `binary_sensor.*` for closed detection (polarity auto-detected) |
 | Open sensor | No | `binary_sensor.*` for open detection (polarity auto-detected) |
 | Toggle delay | No | Delay between rapid presses in seconds (default: 0.25s) |

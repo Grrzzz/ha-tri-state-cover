@@ -17,10 +17,11 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_CLOSED_SENSOR,
+    CONF_CLOSING_TIME,
     CONF_OPEN_SENSOR,
+    CONF_OPENING_TIME,
     CONF_SWITCH_ENTITY,
     CONF_TOGGLE_DELAY,
-    CONF_TRAVEL_TIME,
     DEFAULT_TOGGLE_DELAY,
     DEFAULT_TRAVEL_TIME,
     DOMAIN,
@@ -32,7 +33,18 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
             selector.EntitySelectorConfig(domain="switch"),
         ),
         vol.Required(
-            CONF_TRAVEL_TIME, default=DEFAULT_TRAVEL_TIME
+            CONF_OPENING_TIME, default=DEFAULT_TRAVEL_TIME
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=5,
+                max=120,
+                step=1,
+                unit_of_measurement="s",
+                mode=selector.NumberSelectorMode.BOX,
+            ),
+        ),
+        vol.Required(
+            CONF_CLOSING_TIME, default=DEFAULT_TRAVEL_TIME
         ): selector.NumberSelector(
             selector.NumberSelectorConfig(
                 min=5,
@@ -66,7 +78,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 class VirtualGarageCoverConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Virtual Garage Cover."""
 
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -115,8 +127,20 @@ class VirtualGarageCoverOptionsFlow(OptionsFlow):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_TRAVEL_TIME,
-                        default=current.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME),
+                        CONF_OPENING_TIME,
+                        default=current.get(CONF_OPENING_TIME, DEFAULT_TRAVEL_TIME),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=5,
+                            max=120,
+                            step=1,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_CLOSING_TIME,
+                        default=current.get(CONF_CLOSING_TIME, DEFAULT_TRAVEL_TIME),
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=5,

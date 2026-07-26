@@ -8,5 +8,5 @@
   "documentation": "https://github.com/Grrzzz/ha-virtual-garage-cover",
   "iot_class": "assumed_state",
   "issue_tracker": "https://github.com/Grrzzz/ha-virtual-garage-cover/issues",
-  "version": "1.1.1"
+  "version": "1.2.0"
 }
