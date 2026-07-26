@@ -27,7 +27,9 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     CONF_CLOSED_SENSOR,
+    CONF_CLOSING_TIME,
     CONF_OPEN_SENSOR,
+    CONF_OPENING_TIME,
     CONF_SWITCH_ENTITY,
     CONF_TOGGLE_DELAY,
     CONF_TRAVEL_TIME,
@@ -79,7 +81,12 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
         """Initialize the cover."""
         self._entry = entry
         self._switch_entity: str = config[CONF_SWITCH_ENTITY]
-        self._travel_time: float = config.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME)
+
+        # Support both legacy (travel_time) and new (opening_time/closing_time)
+        legacy_time = config.get(CONF_TRAVEL_TIME, DEFAULT_TRAVEL_TIME)
+        self._opening_time: float = config.get(CONF_OPENING_TIME, legacy_time)
+        self._closing_time: float = config.get(CONF_CLOSING_TIME, legacy_time)
+
         self._closed_sensor: str | None = config.get(CONF_CLOSED_SENSOR)
         self._open_sensor: str | None = config.get(CONF_OPEN_SENSOR)
         self._toggle_delay: float = config.get(CONF_TOGGLE_DELAY, DEFAULT_TOGGLE_DELAY)
@@ -97,6 +104,16 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
         # Timer handle
         self._timer_unsub: CALLBACK_TYPE | None = None
         self._sensor_unsubs: list[CALLBACK_TYPE] = []
+
+    def _get_travel_time(self, direction_open: bool | None = None) -> float:
+        """Return the travel time for the given direction.
+
+        If direction_open is None, uses the current motor_state to determine
+        direction. Falls back to opening_time if direction is unknown.
+        """
+        if direction_open is None:
+            direction_open = self._motor_state != MOTOR_STATE_CLOSING
+        return self._opening_time if direction_open else self._closing_time
 
     @property
     def device_info(self):
@@ -143,10 +160,11 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
              else (100 if self._motor_state == MOTOR_STATE_OPENING else 0))
             - self._position_at_start
         )
-        if travel_distance <= 0 or self._travel_time <= 0:
+        travel_time = self._get_travel_time()
+        if travel_distance <= 0 or travel_time <= 0:
             return round(self._position)
 
-        duration_for_move = (travel_distance / 100.0) * self._travel_time
+        duration_for_move = (travel_distance / 100.0) * travel_time
         fraction = min(elapsed / duration_for_move, 1.0)
 
         if self._motor_state == MOTOR_STATE_OPENING:
@@ -170,40 +188,21 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
         return state.attributes.get("device_class", "") or ""
 
     def _sensor_means_closed(self, sensor_entity: str, state_value: str) -> bool:
-        """Check if the given state value means the door is at the closed endstop.
-
-        For sensors with device_class in (garage_door, door, opening, ...):
-            HA convention is ON=open, OFF=closed.
-            So the closed endstop is reached when state is OFF.
-
-        For other sensors (plain reed switches, etc.):
-            ON = sensor triggered = endstop reached.
-        """
+        """Check if the given state value means the door is at the closed endstop."""
         device_class = self._get_sensor_device_class(sensor_entity)
         if device_class in _OPENING_DEVICE_CLASSES:
             return state_value == STATE_OFF
         return state_value == STATE_ON
 
     def _sensor_means_not_closed(self, sensor_entity: str, state_value: str) -> bool:
-        """Check if the given state value means the door is NOT at the closed endstop.
-
-        Inverse of _sensor_means_closed.
-        """
+        """Check if the given state value means the door is NOT at the closed endstop."""
         device_class = self._get_sensor_device_class(sensor_entity)
         if device_class in _OPENING_DEVICE_CLASSES:
             return state_value == STATE_ON
         return state_value == STATE_OFF
 
     def _sensor_means_open(self, sensor_entity: str, state_value: str) -> bool:
-        """Check if the given state value means the door is at the open endstop.
-
-        For sensors with device_class in (garage_door, door, opening, ...):
-            HA convention is ON=open, OFF=closed.
-            So the open endstop is reached when state is ON.
-
-        For other sensors (plain reed switches, etc.):
-            ON = sensor triggered = endstop reached.
-        """
+        """Check if the given state value means the door is at the open endstop."""
         device_class = self._get_sensor_device_class(sensor_entity)
         if device_class in _OPENING_DEVICE_CLASSES:
             return state_value == STATE_ON
@@ -289,11 +288,7 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
     # -- Motor control ----------------------------------------------
 
     async def _press_button(self) -> None:
-        """Press the motor toggle button once (pulse the relay).
-
-        Ensures a clean pulse by turning the switch off first if it is
-        still on from a previous press, then turning it on.
-        """
+        """Press the motor toggle button once (pulse the relay)."""
         switch_state = self.hass.states.get(self._switch_entity)
         if switch_state and switch_state.state == STATE_ON:
             _LOGGER.debug(
@@ -350,16 +345,19 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
         self._movement_started_at = datetime.now(timezone.utc)
         self._position_at_start = current_pos
 
-        # Calculate duration for this movement
+        # Calculate duration for this movement using direction-specific time
+        travel_time = self._get_travel_time(direction_open)
         travel_fraction = abs(target - current_pos) / 100.0
-        duration = travel_fraction * self._travel_time
+        duration = travel_fraction * travel_time
 
         _LOGGER.info(
-            "Started %s from %.1f%% to %.1f%% (%.1fs, next_dir_was=%s)",
+            "Started %s from %.1f%% to %.1f%% (%.1fs, travel_time=%.1fs, "
+            "next_dir_was=%s)",
             self._motor_state,
             current_pos,
             target,
             duration,
+            travel_time,
             "open" if direction_open else "close",
         )
 
@@ -504,18 +502,12 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
     # -- Sensor calibration -----------------------------------------
 
     async def _calibrate_from_sensors(self) -> None:
-        """Calibrate position from endstop sensors on startup.
-
-        Performs both positive and negative calibration:
-        - Positive: sensor confirms endstop -> set known position
-        - Negative: sensor contradicts current position -> correct it
-        """
+        """Calibrate position from endstop sensors on startup."""
         if self._closed_sensor:
             state = self.hass.states.get(self._closed_sensor)
             if state:
                 dc = state.attributes.get("device_class", "none")
                 if self._sensor_means_closed(self._closed_sensor, state.state):
-                    # Sensor confirms door is closed
                     self._position = 0.0
                     self._position_at_start = 0.0
                     self._next_direction_is_open = True
@@ -529,9 +521,7 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
                 elif self._sensor_means_not_closed(
                     self._closed_sensor, state.state
                 ):
-                    # Sensor says door is NOT closed
                     if self._position <= 0:
-                        # Position says closed but sensor disagrees -> fix it
                         self._position = 100.0
                         self._position_at_start = 100.0
                         self._next_direction_is_open = False
@@ -611,11 +601,7 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
 
     @callback
     def _handle_closed_sensor_change(self, event: Event) -> None:
-        """Handle closed sensor state change.
-
-        Respects device_class polarity. Also enforces the invariant:
-        if the sensor says 'not closed', the cover must not be at 0%.
-        """
+        """Handle closed sensor state change."""
         new_state = event.data.get("new_state")
         if new_state is None:
             return
@@ -637,7 +623,6 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
                 "(state=%s, dc=%s, motor_state=%s, position=%.1f%%)",
                 new_state.state, dc, self._motor_state, self._position,
             )
-            # INVARIANT: If sensor says not closed, position must not be 0%
             if self._position <= 0 and self._motor_state == MOTOR_STATE_IDLE:
                 _LOGGER.warning(
                     "INVARIANT FIX: Position was 0%% but sensor says not "
@@ -647,11 +632,7 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
 
     @callback
     def _handle_open_sensor_change(self, event: Event) -> None:
-        """Handle open sensor state change.
-
-        Respects device_class polarity. Also enforces the invariant:
-        if the sensor says 'not open', the cover must not be at 100%.
-        """
+        """Handle open sensor state change."""
         new_state = event.data.get("new_state")
         if new_state is None:
             return
@@ -673,7 +654,6 @@ class TriStateCoverEntity(CoverEntity, RestoreEntity):
                 "(state=%s, dc=%s, motor_state=%s, position=%.1f%%)",
                 new_state.state, dc, self._motor_state, self._position,
             )
-            # INVARIANT: If sensor says not open, position must not be 100%
             if self._position >= 100 and self._motor_state == MOTOR_STATE_IDLE:
                 _LOGGER.warning(
                     "INVARIANT FIX: Position was 100%% but sensor says not "

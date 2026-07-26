@@ -1,6 +1,8 @@
 DOMAIN = "virtual_garage_cover"
 CONF_SWITCH_ENTITY = "switch_entity"
 CONF_TRAVEL_TIME = "travel_time"
+CONF_OPENING_TIME = "opening_time"
+CONF_CLOSING_TIME = "closing_time"
 CONF_CLOSED_SENSOR = "closed_sensor"
 CONF_OPEN_SENSOR = "open_sensor"
 CONF_TOGGLE_DELAY = "toggle_delay"
