@@ -94,6 +94,8 @@ Position is estimated from travel time. Optional endstop sensors auto-calibrate 
 3. Install **Virtual Garage Cover**
 4. Restart Home Assistant
 
+<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=Grrzzz&repository=ha-virtual-garage-cover&category=integration"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open in HACS" width="200"></a>
+
 ### Manual
 
 Copy `custom_components/virtual_garage_cover/` into your `config/custom_components/` directory. Restart Home Assistant.
